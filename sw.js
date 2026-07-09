@@ -1,5 +1,5 @@
 /* Micro Wars — offline cache. Bump CACHE on every release. */
-const CACHE = 'microwars-v2';
+const CACHE = 'microwars-v3';
 const ASSETS = [
   '.', 'index.html', 'icon.svg', 'manifest.webmanifest',
   'css/style.css',
