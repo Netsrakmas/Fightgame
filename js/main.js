@@ -20,6 +20,7 @@
   let cursor = null;
   let undoSnapshot = null;
   let aiSpeed = 1;
+  let nextUnitIdx = -1;
   let animating = false;
   let animatingUnit = null;
   let raf = 0, lastT = 0;
@@ -142,6 +143,7 @@
     chip.style.background = ARMY[game.turn].color;
     $('#btn-endturn').disabled = isAITurn() || animating;
     $('#btn-ai-speed').style.display = isAITurn() ? '' : 'none';
+    $('#btn-next').style.display = isAITurn() ? 'none' : '';
   }
 
   function setInfo(html) { $('#hud-info').innerHTML = html || '&nbsp;'; }
@@ -166,13 +168,11 @@
   /* ================= vision ================= */
   function getVision() {
     if (!game.fog) return null;
-    if (mode === 'ai' || true) {
-      if (visionDirty || !visionCache) {
-        visionCache = Engine.computeVision(game, humanPOV());
-        visionDirty = false;
-      }
-      return visionCache;
+    if (visionDirty || !visionCache) {
+      visionCache = Engine.computeVision(game, humanPOV());
+      visionDirty = false;
     }
+    return visionCache;
   }
 
   /* ================= banners / dialogs ================= */
@@ -840,6 +840,19 @@
       else doEndTurn();
     };
 
+    $('#btn-next').onclick = () => {
+      if (isAITurn() || animating || game.winner !== null) return;
+      const ready = game.units.filter(u => u.owner === game.turn && !u.acted);
+      if (!ready.length) { toast('All units have acted'); return; }
+      nextUnitIdx = (nextUnitIdx + 1) % ready.length;
+      const u = ready[nextUnitIdx];
+      cancelToIdle();
+      Renderer.focusTile(game, u.x, u.y);
+      selectUnit(u);
+      cursor = { x: u.x, y: u.y };
+      setInfo(describeTile(u.x, u.y));
+    };
+
     $('#btn-menu').onclick = () => { Sound.sfx.tap(); $('#pause').classList.add('active'); syncPause(); };
     $('#pause-resume').onclick = () => { Sound.sfx.tap(); $('#pause').classList.remove('active'); };
     $('#pause-help').onclick = () => { Sound.sfx.tap(); $('#help').classList.add('active'); };
@@ -873,6 +886,13 @@
   }
 
   /* ================= boot ================= */
+  /* debug/testing hook */
+  window.__MW = {
+    getGame: () => game,
+    getMode: () => mode,
+    isAnimating: () => animating,
+  };
+
   window.addEventListener('load', () => {
     Renderer.init($('#canvas'));
     setupInput();

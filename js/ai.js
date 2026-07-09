@@ -47,7 +47,36 @@ const AI = (() => {
     return threat;
   }
 
-  /* Build the best plan for one unit. Plan: {score, tile:{x,y}, path, action, target?, buildType?} */
+  /* flood fill of foot-passable terrain (ignores units) from x,y */
+  function footRegion(state, x, y) {
+    const seen = new Set([x + ',' + y]);
+    const stack = [[x, y]];
+    while (stack.length) {
+      const [cx, cy] = stack.pop();
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = cx + dx, ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= state.w || ny >= state.h) continue;
+        const k = nx + ',' + ny;
+        if (seen.has(k)) continue;
+        if (E.moveCost('INF', state.terrain[ny][nx]) === Infinity) continue;
+        seen.add(k);
+        stack.push([nx, ny]);
+      }
+    }
+    return seen;
+  }
+
+  function regionHasGoal(state, me, region, enemyOnly) {
+    for (const k in state.props) {
+      const p = state.props[k];
+      if (p.owner === me) continue;
+      if (enemyOnly && p.owner < 0) continue;
+      if (region.has(k)) return true;
+    }
+    return false;
+  }
+
+  /* Build the best plan for one unit. Plan: {score, tile:{x,y}, path, action, target?, dropAt?} */
   function bestPlan(state, unit) {
     const me = unit.owner;
     const reach = E.reachable(state, unit);
@@ -55,9 +84,17 @@ const AI = (() => {
     const plans = [];
     const caps = objectives(state, me);
 
+    // foot units cut off from every capturable property board a transport instead
+    const cutOff = ud.capture &&
+      !regionHasGoal(state, me, footRegion(state, unit.x, unit.y), false);
+
     for (const [k, node] of reach) {
       const [x, y] = k.split(',').map(Number);
       const kind = E.stopKind(state, unit, x, y);
+      if (kind === 'load' && cutOff) {
+        plans.push({ score: 5000, x, y, getPath: () => E.buildPath(reach, x, y), action: 'load' });
+        continue;
+      }
       if (kind !== 'move') continue;
       const hasMoved = !(x === unit.x && y === unit.y);
       const path = () => E.buildPath(reach, x, y);
@@ -100,6 +137,41 @@ const AI = (() => {
         }
       }
 
+      // --- transports: ferry cargo toward a capture goal, drop nearby ---
+      if (ud.carries) {
+        if (unit.cargo.length) {
+          let goal = null, bd = Infinity;
+          for (const c of caps) {
+            const d = E.dist(x, y, c.x, c.y) + (c.hq ? -2 : 0);
+            if (d < bd) { bd = d; goal = c; }
+          }
+          if (goal) {
+            const cur = E.dist(x, y, goal.x, goal.y);
+            if (cur <= 5) {
+              const saved = { x: unit.x, y: unit.y };
+              unit.x = x; unit.y = y;
+              const tiles = E.dropTiles(state, unit);
+              unit.x = saved.x; unit.y = saved.y;
+              let bestTile = null, btd = Infinity;
+              for (const t of tiles) {
+                const td = E.dist(t.x, t.y, goal.x, goal.y);
+                if (td < btd && td < cur && footRegion(state, t.x, t.y).has(goal.x + ',' + goal.y)) { btd = td; bestTile = t; }
+              }
+              if (bestTile) plans.push({ score: 4600 - cur * 50, x, y, getPath: path, action: 'drop', dropAt: bestTile });
+            }
+            plans.push({ score: 90 - cur * 2 - node.cost * 0.1, x, y, getPath: path, action: 'wait' });
+          }
+        } else {
+          // empty transport shadows the nearest foot soldier
+          let d = Infinity;
+          for (const u of state.units) {
+            if (u.owner === me && UNITS[u.type].capture) d = Math.min(d, E.dist(x, y, u.x, u.y));
+          }
+          if (d < Infinity) plans.push({ score: 20 - d, x, y, getPath: path, action: 'wait' });
+        }
+        continue;
+      }
+
       // --- advance toward objective ---
       let goal = null;
       if (ud.capture) {
@@ -118,7 +190,6 @@ const AI = (() => {
         const d = E.dist(x, y, goal.x, goal.y);
         let score = 60 - d * 2 - node.cost * 0.1;
         if (ud.indirect) score -= tileThreat(state, me, unit, x, y) * 0.02;   // indirects hang back a bit
-        if (unit.type === 'APC' || unit.type === 'TCOPTER') score = 30 - d;   // transports trail behind
         plans.push({ score, x, y, getPath: path, action: 'wait' });
       }
     }
@@ -128,10 +199,12 @@ const AI = (() => {
   }
 
   /* ---------- production ---------- */
-  function chooseBuild(state, me, funds, tKind, counts, enemy) {
+  function chooseBuild(state, me, funds, tKind, counts, enemy, landlocked) {
     const enemyAir = enemy.filter(u => AIR_UNITS.has(u.type) && u.type !== 'TCOPTER').length;
     const myAA = counts.AA || 0, myFighters = counts.FIGHTER || 0;
     if (tKind === 'air') {
+      const footCount = (counts.INF || 0) + (counts.MECH || 0);
+      if (landlocked && !(counts.TCOPTER > 0) && footCount > 0 && funds >= 5000) return 'TCOPTER';
       if (enemyAir > myFighters && funds >= 20000) return 'FIGHTER';
       if (funds >= 22000 && (counts.BOMBER || 0) < 2 && Math.floor(E.rand(state) * 3) === 0) return 'BOMBER';
       if (funds >= 9000) return 'BCOPTER';
@@ -140,6 +213,12 @@ const AI = (() => {
     // land
     const props = E.countProperties(state, me);
     const infCount = (counts.INF || 0) + (counts.MECH || 0);
+    if (landlocked) {
+      // ground army can't reach the enemy: keep a small garrison, bank the rest for air power
+      const landCount = state.units.filter(u => u.owner === me && !AIR_UNITS.has(u.type)).length;
+      if (landCount >= Math.max(3, props) || funds < 1000) return null;
+      return 'INF';
+    }
     if (infCount < Math.max(2, Math.floor(props * 0.5)) && funds >= 1000) {
       return funds >= 3000 && E.rand(state) < 0.25 ? 'MECH' : 'INF';
     }
@@ -161,15 +240,20 @@ const AI = (() => {
     const events = [];
     if (state.noProduction) return events;
     const enemy = state.units.filter(u => u.owner !== me);
+    // landlocked: no enemy-owned property is reachable on foot from any of our bases
+    let landlocked = null;
     for (const k in state.props) {
       const p = state.props[k];
       if (p.owner !== me) continue;
       const [x, y] = k.split(',').map(Number);
       const t = TERRAIN[state.terrain[y][x]];
       if (!t.produces || E.unitAt(state, x, y)) continue;
+      if (landlocked === null) {
+        landlocked = !regionHasGoal(state, me, footRegion(state, x, y), true);
+      }
       const counts = {};
       for (const u of state.units) if (u.owner === me) counts[u.type] = (counts[u.type] || 0) + 1;
-      const type = chooseBuild(state, me, state.players[me].funds, t.produces, counts, enemy);
+      const type = chooseBuild(state, me, state.players[me].funds, t.produces, counts, enemy, landlocked);
       if (!type || UNITS[type].cost > state.players[me].funds) continue;
       const u = E.buildUnit(state, x, y, type);
       if (u) events.push({ type: 'build', unit: u.id, utype: type, x, y, owner: me });
@@ -194,12 +278,24 @@ const AI = (() => {
     const { u, plan } = best;
     const events = [];
     const path = plan.getPath();
+    if (plan.action === 'load') {
+      const transport = E.unitAt(state, plan.x, plan.y);
+      if (transport && transport.cargo.length === 0) {
+        events.push({ type: 'move', unit: u.id, path });
+        events.push(...E.doLoad(state, u, transport));
+      }
+      u.acted = true;
+      E.invalidateVision(state);
+      return { events, done: state.winner !== null };
+    }
     if (path.length > 1) events.push(...E.doMove(state, u, path));
     E.invalidateVision(state);
     if (plan.action === 'fire' && state.units.includes(plan.target)) {
       events.push(...E.doAttack(state, u, plan.target));
     } else if (plan.action === 'capture') {
       events.push(...E.doCapture(state, u));
+    } else if (plan.action === 'drop' && u.cargo.length && !E.unitAt(state, plan.dropAt.x, plan.dropAt.y)) {
+      events.push(...E.doDrop(state, u, plan.dropAt.x, plan.dropAt.y));
     } else {
       events.push(...E.doWait(state, u));
     }

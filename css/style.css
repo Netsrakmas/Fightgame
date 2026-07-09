@@ -89,11 +89,19 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 
 #hud-top {
   position: absolute; top: 0; left: 0; right: 0;
-  display: flex; align-items: center; gap: 10px;
-  padding: calc(6px + env(safe-area-inset-top)) 10px 6px;
+  display: flex; align-items: center; gap: 6px;
+  padding: calc(6px + env(safe-area-inset-top)) 8px 6px;
   background: linear-gradient(#101820ee, #10182099 80%, transparent);
-  font-weight: 700; font-size: 14px;
+  font-weight: 700; font-size: 13px;
+  white-space: nowrap;
   pointer-events: none;
+}
+#hud-top .chip { flex: none; max-width: 92px; overflow: hidden; text-overflow: ellipsis; }
+#hud-day, #hud-funds { flex: none; }
+@media (max-width: 430px) {
+  #hud-top { font-size: 12px; gap: 5px; }
+  #hud-top .chip { max-width: 58px; }
+  .hud-btn { padding: 7px 9px; font-size: 12.5px; }
 }
 #hud-top > * { pointer-events: auto; }
 #hud-top .spacer { flex: 1; pointer-events: none; }
