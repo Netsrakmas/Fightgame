@@ -1,5 +1,5 @@
-/* Micro Wars — offline cache */
-const CACHE = 'microwars-v1';
+/* Micro Wars — offline cache. Bump CACHE on every release. */
+const CACHE = 'microwars-v2';
 const ASSETS = [
   '.', 'index.html', 'icon.svg', 'manifest.webmanifest',
   'css/style.css',
@@ -20,13 +20,26 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
-  e.respondWith(
-    caches.match(e.request, { ignoreSearch: true }).then(hit =>
-      hit || fetch(e.request).then(res => {
+  // navigations: network-first so shipped updates reach installed users
+  if (e.request.mode === 'navigate') {
+    e.respondWith(
+      fetch(e.request).then(res => {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
         return res;
-      })
-    )
+      }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(hit => hit || caches.match('index.html')))
+    );
+    return;
+  }
+  // everything else: cache-first with background refresh
+  e.respondWith(
+    caches.match(e.request, { ignoreSearch: true }).then(hit => {
+      const refresh = fetch(e.request).then(res => {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
+        return res;
+      }).catch(() => hit);
+      return hit || refresh;
+    })
   );
 });

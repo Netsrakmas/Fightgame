@@ -172,11 +172,18 @@ const Renderer = (() => {
         const p = painter(c);
         drawUnitArt(p, id, t, o === 1);
         sprites['U' + id + o] = c;
-        // greyed 'acted' version
+        // greyed 'acted' version (canvas filters are missing on older iOS Safari)
         const g = mkCanvas(TILE, TILE);
         const gg = g.getContext('2d');
-        gg.filter = 'grayscale(70%) brightness(0.62)';
-        gg.drawImage(c, 0, 0);
+        if (typeof gg.filter === 'string') {
+          gg.filter = 'grayscale(70%) brightness(0.62)';
+          gg.drawImage(c, 0, 0);
+        } else {
+          gg.drawImage(c, 0, 0);
+          gg.globalCompositeOperation = 'source-atop';
+          gg.fillStyle = 'rgba(35,40,48,0.55)';
+          gg.fillRect(0, 0, TILE, TILE);
+        }
         sprites['U' + id + o + 'g'] = g;
       }
     }
@@ -399,8 +406,13 @@ const Renderer = (() => {
   }
 
   function focusTile(game, x, y, instant = false) {
-    const tx = (x + 0.5) * TILE - canvas.width / cam.zoom / 2;
-    const ty = (y + 0.5) * TILE - canvas.height / cam.zoom / 2;
+    let tx = (x + 0.5) * TILE - canvas.width / cam.zoom / 2;
+    let ty = (y + 0.5) * TILE - canvas.height / cam.zoom / 2;
+    // clamp the target the same way clampCam clamps cam, so the lerp can settle
+    const vw = canvas.width / cam.zoom, vh = canvas.height / cam.zoom;
+    const mw = game.w * TILE, mh = game.h * TILE, mx = TILE * 1.5;
+    tx = mw < vw ? (mw - vw) / 2 : Math.max(-mx, Math.min(mw - vw + mx, tx));
+    ty = mh < vh ? (mh - vh) / 2 : Math.max(-mx, Math.min(mh - vh + mx, ty));
     if (instant) { cam.x = tx; cam.y = ty; clampCam(game); }
     else camTarget = { x: tx, y: ty };
   }
@@ -691,6 +703,7 @@ const Renderer = (() => {
     animPos,
     invalidateMap: () => { mapLayerDirty = true; },
     zoomAt: (factor, sx, sy) => {
+      camTarget = null;   // manual zoom overrides any pending camera focus
       const r = canvas.getBoundingClientRect();
       const cx = (sx - r.left) * (canvas.width / r.width);
       const cy = (sy - r.top) * (canvas.height / r.height);

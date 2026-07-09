@@ -240,16 +240,17 @@ const AI = (() => {
     const events = [];
     if (state.noProduction) return events;
     const enemy = state.units.filter(u => u.owner !== me);
-    // landlocked: no enemy-owned property is reachable on foot from any of our bases
-    let landlocked = null;
+    const landlockedCache = new Map();  // per-property: enemy unreachable on foot from here
     for (const k in state.props) {
       const p = state.props[k];
       if (p.owner !== me) continue;
       const [x, y] = k.split(',').map(Number);
       const t = TERRAIN[state.terrain[y][x]];
       if (!t.produces || E.unitAt(state, x, y)) continue;
-      if (landlocked === null) {
+      let landlocked = landlockedCache.get(k);
+      if (landlocked === undefined) {
         landlocked = !regionHasGoal(state, me, footRegion(state, x, y), true);
+        landlockedCache.set(k, landlocked);
       }
       const counts = {};
       for (const u of state.units) if (u.owner === me) counts[u.type] = (counts[u.type] || 0) + 1;
@@ -280,15 +281,29 @@ const AI = (() => {
     const path = plan.getPath();
     if (plan.action === 'load') {
       const transport = E.unitAt(state, plan.x, plan.y);
-      if (transport && transport.cargo.length === 0) {
-        events.push({ type: 'move', unit: u.id, path });
+      // walk to the tile next to the transport first so fog ambushes apply
+      const walk = path.slice(0, -1);
+      let trapped = false;
+      if (walk.length > 1) {
+        const mv = E.doMove(state, u, walk);
+        events.push(...mv);
+        trapped = mv[0].trapped;
+      }
+      if (!trapped && transport && transport.cargo.length === 0 && E.dist(u.x, u.y, transport.x, transport.y) === 1) {
         events.push(...E.doLoad(state, u, transport));
       }
       u.acted = true;
       E.invalidateVision(state);
       return { events, done: state.winner !== null };
     }
-    if (path.length > 1) events.push(...E.doMove(state, u, path));
+    if (path.length > 1) {
+      const mv = E.doMove(state, u, path);
+      events.push(...mv);
+      if (mv[0].trapped) {   // ambushed: the planned action no longer applies
+        E.invalidateVision(state);
+        return { events, done: state.winner !== null };
+      }
+    }
     E.invalidateVision(state);
     if (plan.action === 'fire' && state.units.includes(plan.target)) {
       events.push(...E.doAttack(state, u, plan.target));

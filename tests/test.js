@@ -120,6 +120,67 @@ ok(!DAMAGE.APC && !DAMAGE.TCOPTER, 'transports cannot attack');
   ok(p2.cap === CAPTURE_POINTS, 'capture reset after moving away');
 }
 
+/* ---------- capture resets on wait / attack ---------- */
+{
+  const g = Engine.makeGame(MAPS[0], { seed: 3 });
+  g.units = [];
+  const inf = Engine.spawnUnit(g, 'INF', 0, 5, 3);
+  const p = Engine.propAt(g, 5, 3);
+  Engine.doCapture(g, inf);
+  inf.acted = false;
+  Engine.doWait(g, inf);
+  ok(p.cap === CAPTURE_POINTS, 'waiting in place resets capture progress');
+  Engine.doCapture(g, inf);
+  const enemy = Engine.spawnUnit(g, 'INF', 1, 6, 3);
+  inf.acted = false;
+  Engine.doAttack(g, inf, enemy);
+  ok(p.cap === CAPTURE_POINTS, 'attacking resets capture progress');
+}
+
+/* ---------- day-1 income parity ---------- */
+{
+  const g = Engine.makeGame(MAPS[0], { seed: 3, funds: 5000 });
+  const p1Start = g.players[0].funds;
+  Engine.endTurn(g);
+  ok(p1Start === g.players[1].funds, `both players start with income (${p1Start} vs ${g.players[1].funds})`);
+}
+
+/* ---------- fog: AI ambush aborts planned action ---------- */
+{
+  const g = Engine.makeGame(MAPS[0], { seed: 2, fog: true, p1AI: true });
+  g.units = [];
+  const tank = Engine.spawnUnit(g, 'TANK', 0, 2, 2);
+  const victim = Engine.spawnUnit(g, 'INF', 1, 8, 2, 30);
+  Engine.spawnUnit(g, 'INF', 1, 6, 2); // hidden blocker on the road
+  Engine.invalidateVision(g);
+  const r = AI.step(g);
+  ok(victim.hp === 30 || Engine.dist(tank.x, tank.y, victim.x, victim.y) <= 1,
+    'trapped AI unit does not attack out of range');
+}
+
+/* ---------- air units get no mountain vision bonus ---------- */
+{
+  const g = Engine.makeGame(MAPS[3], { seed: 3, fog: true }); // valley has mountains
+  g.units = [];
+  for (const k in g.props) g.props[k].owner = -1; // property vision would pollute the check
+  Engine.spawnUnit(g, 'BCOPTER', 0, 0, 0); // mountain corner
+  const vis = Engine.computeVision(g, 0);
+  const far = [...vis].some(k => {
+    const [x, y] = k.split(',').map(Number);
+    return Math.abs(x) + Math.abs(y) > 4 + 1;
+  });
+  ok(!far, 'B-Copter on mountain sees only its own vision range');
+}
+
+/* ---------- map balance: per-player property parity ---------- */
+for (const m of MAPS) {
+  const flat = m.grid.join('');
+  const n = ch => (flat.match(new RegExp(ch, 'g')) || []).length;
+  ok(n('b') === n('d'), `${m.id}: base parity (${n('b')} vs ${n('d')})`);
+  ok(n('c') === n('e'), `${m.id}: city parity (${n('c')} vs ${n('e')})`);
+  ok(n('p') === n('q'), `${m.id}: airport parity (${n('p')} vs ${n('q')})`);
+}
+
 /* ---------- HQ win ---------- */
 {
   const g = Engine.makeGame(MAPS[0], { seed: 3 });

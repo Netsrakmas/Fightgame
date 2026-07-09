@@ -23,6 +23,7 @@
   let nextUnitIdx = -1;
   let animating = false;
   let animatingUnit = null;
+  let gameGen = 0;            // bumped whenever `game` is replaced; async flows bail if it changed
   let raf = 0, lastT = 0;
   let visionCache = null, visionDirty = true;
 
@@ -88,10 +89,14 @@
   }
 
   function beginGame() {
+    gameGen++;
+    const gen = gameGen;
     show('screen-game');
     Sound.playSong('battle');
     mode = 'idle';
+    animating = false; animatingUnit = null; undoSnapshot = null;
     sel = null; reach = null; reachTiles = null; plannedPath = null; targets = []; dropTiles = []; dangerTiles = null; cursor = null;
+    closePopups();
     Renderer.animPos.clear();
     Renderer.resize();
     Renderer.fitCamera(game);
@@ -100,7 +105,7 @@
     updateHUD();
     saveGame();
     banner(dayTitle(), teamColor(game.turn), () => {
-      if (isAITurn()) runAITurn();
+      if (gen === gameGen && game && isAITurn()) runAITurn();
     });
     startLoop();
   }
@@ -221,7 +226,16 @@
     c.onclick = () => { Sound.sfx.cancel(); cancelToIdle(); };
     menu.appendChild(c);
     menu.classList.add('active');
+    guardPopup(menu);
     positionPopup(menu, screenX, screenY);
+  }
+
+  /* Popups often open right under the finger; the browser then delivers a
+     synthesized click at the same spot which would instantly press whatever
+     button appeared there. Swallow pointer events briefly after opening. */
+  function guardPopup(el) {
+    el.style.pointerEvents = 'none';
+    setTimeout(() => { el.style.pointerEvents = ''; }, 350);
   }
 
   function positionPopup(el, x, y) {
@@ -259,6 +273,8 @@
     setInfo(describeTile(x, y));
 
     if (mode === 'ai' || mode === 'locked') return;
+
+    if (mode === 'building') { Sound.sfx.cancel(); closePopups(); mode = 'idle'; return; }
 
     if (mode === 'menu') { Sound.sfx.cancel(); cancelToIdle(); return; }
 
@@ -386,52 +402,63 @@
   /* ================= executing actions ================= */
   async function chooseAction(action) {
     closePopups();
-    const selId = sel.id;
+    const gen = gameGen;
     undoSnapshot = Engine.serialize(game);
     const path = plannedPath;
     const dest = plannedDest;
+    mode = 'locked';
 
-    if (action === 'load') {
-      const transport = Engine.unitAt(game, dest.x, dest.y);
-      await animateMove(sel, path);
-      Engine.doLoad(game, sel, transport);
-      sel.acted = true;
-      finishHumanAction();
-      return;
-    }
-    if (action === 'join') {
+    if (action === 'load' || action === 'join') {
+      // walk up to (not onto) the occupied destination so fog ambushes apply
+      const walk = path.slice(0, -1);
+      let trapped = false;
+      if (walk.length > 1) {
+        const mv = Engine.doMove(game, sel, walk).find(e => e.type === 'move');
+        await animateMove(sel, mv.path);
+        if (gen !== gameGen) return;
+        trapped = mv.trapped;
+      }
+      visionDirty = true;
+      if (trapped) {
+        Renderer.addEffect({ type: 'text', x: sel.x, y: sel.y, text: 'Ambush!', color: 'rgba(255,90,90,ALPHA)' });
+        Sound.sfx.boom();
+        finishHumanAction();
+        return;
+      }
       const other = Engine.unitAt(game, dest.x, dest.y);
-      await animateMove(sel, path);
-      Engine.doJoin(game, sel, other);
-      Sound.sfx.heal();
+      if (action === 'load' && other) {
+        Engine.doLoad(game, sel, other);
+        sel.acted = true;
+      } else if (action === 'join' && other) {
+        Engine.doJoin(game, sel, other);
+        Sound.sfx.heal();
+      }
       finishHumanAction();
       return;
     }
 
     // regular: move first
-    mode = 'locked';
     const evs = Engine.doMove(game, sel, path);
     const moveEv = evs.find(e => e.type === 'move');
     await animateMove(sel, moveEv.path);
+    if (gen !== gameGen) return;
     visionDirty = true;
     if (moveEv.trapped) {
       Renderer.addEffect({ type: 'text', x: sel.x, y: sel.y, text: 'Ambush!', color: 'rgba(255,90,90,ALPHA)' });
       Sound.sfx.boom();
-      undoSnapshot = null;
       finishHumanAction();
       return;
     }
 
     if (action === 'wait') {
       Engine.doWait(game, sel);
-      undoSnapshot = null;
       finishHumanAction();
       return;
     }
     if (action === 'capture') {
       const evs2 = Engine.doCapture(game, sel);
       await playEvents(evs2);
-      undoSnapshot = null;
+      if (gen !== gameGen) return;
       finishHumanAction();
       return;
     }
@@ -460,24 +487,29 @@
       `Damage: <b class="good">${Math.min(99, Math.round(f.dmg / 10))}–${Math.min(10, Math.ceil((f.dmg + 9) / 10))} HP</b>${killLikely ? ' 💥' : ''}<br>` +
       `Counter: <b class="${f.counter > 25 ? 'bad' : 'dim'}">${f.counter ? '~' + Math.round(f.counter / 10) + ' HP' : 'none'}</b>`;
     box.classList.add('active');
+    guardPopup(box);
     const pos = tileCenterScreen(target.x, target.y);
     positionPopup(box, pos.x, pos.y);
     $('#forecast-ok').onclick = async () => {
+      const gen = gameGen;
       box.classList.remove('active');
       mode = 'locked';
       const evs = Engine.doAttack(game, sel, target);
       undoSnapshot = null;
       await playEvents(evs);
+      if (gen !== gameGen) return;
       finishHumanAction();
     };
     $('#forecast-cancel').onclick = () => { box.classList.remove('active'); Sound.sfx.cancel(); };
   }
 
   async function executeDrop(tile) {
+    const gen = gameGen;
     mode = 'locked';
     const evs = Engine.doDrop(game, sel, tile.x, tile.y);
     undoSnapshot = null;
     await playEvents(evs);
+    if (gen !== gameGen) return;
     finishHumanAction();
   }
 
@@ -537,6 +569,7 @@
     c.onclick = () => { Sound.sfx.cancel(); closePopups(); mode = 'idle'; };
     menu.appendChild(c);
     menu.classList.add('active');
+    guardPopup(menu);
     mode = 'building';
   }
 
@@ -545,26 +578,40 @@
 
   async function animateMove(unit, path) {
     if (path.length < 2) return;
+    const gen = gameGen;
     animating = true;
     animatingUnit = unit.id;
     Sound.sfx.move();
     const perTile = 110;
-    for (let i = 0; i < path.length - 1; i++) {
-      const a = path[i], b = path[i + 1];
-      const steps = 6;
-      for (let s = 1; s <= steps; s++) {
-        Renderer.animPos.set(unit.id, { x: a.x + (b.x - a.x) * s / steps, y: a.y + (b.y - a.y) * s / steps });
-        await sleep(perTile / steps);
+    try {
+      for (let i = 0; i < path.length - 1; i++) {
+        const a = path[i], b = path[i + 1];
+        const steps = 6;
+        for (let s = 1; s <= steps; s++) {
+          Renderer.animPos.set(unit.id, { x: a.x + (b.x - a.x) * s / steps, y: a.y + (b.y - a.y) * s / steps });
+          await sleep(perTile / steps);
+          if (gen !== gameGen) return;
+        }
       }
+    } finally {
+      Renderer.animPos.delete(unit.id);
+      if (gen === gameGen) { animating = false; animatingUnit = null; }
     }
-    Renderer.animPos.delete(unit.id);
-    animating = false;
-    animatingUnit = null;
   }
 
   async function playEvents(events) {
+    const gen = gameGen;
     animating = true;
+    try {
+      await playEventsInner(events, gen);
+    } finally {
+      if (gen === gameGen) animating = false;
+    }
+  }
+
+  async function playEventsInner(events, gen) {
     for (const e of events) {
+      if (gen !== gameGen || !game) return;
       switch (e.type) {
         case 'move': {
           const u = Engine.unitById(game, e.unit);
@@ -632,6 +679,9 @@
   /* ================= end turn & AI ================= */
   async function doEndTurn() {
     if (animating || isAITurn()) return;
+    const gen = gameGen;
+    // a pending move (Fire/Drop target not chosen yet) must be rolled back first
+    if (mode === 'targeting' || mode === 'dropping') cancelAction();
     clearOverlays();
     mode = 'locked';
     const evs = Engine.endTurn(game);
@@ -641,9 +691,12 @@
     // hotseat: pass-device curtain
     if (meta.mode === 'hotseat' && game.winner === null) {
       await showCurtain();
+      if (gen !== gameGen) return;
     }
     banner(dayTitle(), teamColor(game.turn), async () => {
+      if (gen !== gameGen || !game) return;
       await playEvents(evs.filter(e => e.type === 'repair'));
+      if (gen !== gameGen || !game) return;
       updateHUD();
       if (isAITurn()) runAITurn();
       else mode = 'idle';
@@ -661,6 +714,7 @@
   }
 
   async function runAITurn() {
+    const gen = gameGen;
     mode = 'ai';
     updateHUD();
     while (game.winner === null && isAITurn()) {
@@ -675,18 +729,21 @@
         }
       }
       await playEvents(r.events);
+      if (gen !== gameGen || !game) return;
       visionDirty = true;
       updateHUD();
       if (r.done) break;
       await sleep(120);
+      if (gen !== gameGen || !game) return;
     }
     if (game.winner !== null) { onGameOver(); return; }
     const evs = Engine.endTurn(game);
     visionDirty = true;
     saveGame();
     banner(dayTitle(), teamColor(game.turn), async () => {
-      if (meta.mode === 'hotseat' && game.fog) await showCurtain();
+      if (gen !== gameGen || !game) return;
       await playEvents(evs.filter(e => e.type === 'repair'));
+      if (gen !== gameGen || !game) return;
       updateHUD();
       if (isAITurn()) runAITurn();   // AI vs AI safety
       else mode = 'idle';
@@ -696,6 +753,7 @@
   /* ================= game over ================= */
   function onGameOver() {
     mode = 'over';
+    const gen = gameGen;
     localStorage.removeItem(SAVE_KEY);
     const w = game.winner;
     const humanWon = meta.mode === 'hotseat' ? true : w === humanPOV();
@@ -706,6 +764,7 @@
       localStorage.setItem(PROGRESS_KEY, String(Math.max(cur, meta.missionIdx + 1)));
     }
     setTimeout(() => {
+      if (gen !== gameGen || !game) return;
       const box = $('#gameover');
       const title = meta.mode === 'hotseat'
         ? `${ARMY[w].name} wins!`
@@ -733,9 +792,13 @@
   }
 
   function quitToTitle() {
+    gameGen++;
     stopLoop();
     Sound.playSong('menu');
     game = null;
+    animating = false; animatingUnit = null; undoSnapshot = null;
+    Renderer.animPos.clear();
+    closePopups();
     buildMenus();
     show('screen-menu');
   }
@@ -841,7 +904,9 @@
     };
 
     $('#btn-next').onclick = () => {
-      if (isAITurn() || animating || game.winner !== null) return;
+      if (!game || isAITurn() || animating || game.winner !== null) return;
+      // roll back any half-committed move before jumping to another unit
+      if (mode === 'targeting' || mode === 'dropping') cancelAction();
       const ready = game.units.filter(u => u.owner === game.turn && !u.acted);
       if (!ready.length) { toast('All units have acted'); return; }
       nextUnitIdx = (nextUnitIdx + 1) % ready.length;

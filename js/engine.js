@@ -50,6 +50,8 @@ const Engine = (() => {
     for (const u of (mapDef.units || [])) {
       spawnUnit(state, u.t, u.p, u.x, u.y, u.hp ?? MAX_HP);
     }
+    // P1 gets its day-1 income here since endTurn() only pays the player whose turn starts
+    state.players[0].funds += countProperties(state, 0) * INCOME_PER_PROPERTY;
     return state;
   }
 
@@ -124,7 +126,12 @@ const Engine = (() => {
   function stopKind(state, unit, x, y) {
     const occ = unitAt(state, x, y);
     if (!occ || occ === unit) return 'move';
-    if (occ.owner !== unit.owner) return null;
+    if (occ.owner !== unit.owner) {
+      // in fog an unseen enemy must not leave a hole in the move overlay; the
+      // actual move triggers the ambush rule in doMove instead
+      if (state.fog && !isVisibleTo(state, unit.owner, x, y)) return 'move';
+      return null;
+    }
     const od = UNITS[occ.type];
     if (od.carries && od.carries.includes(unit.type) && occ.cargo.length < 1) return 'load';
     if (occ.type === unit.type && (occ.hp < MAX_HP || unit.hp < MAX_HP) && occ.cargo.length === 0 && unit.cargo.length === 0) return 'join';
@@ -224,6 +231,7 @@ const Engine = (() => {
 
   function doAttack(state, att, def) {
     const events = [];
+    stopCapture(state, att);   // attacking abandons any capture in progress
     const f = forecast(state, att, def);
     const luck = Math.floor(rand(state) * 10 * (att.hp / 100));
     const dmg = Math.min(def.hp, f.dmg + luck);
@@ -232,8 +240,11 @@ const Engine = (() => {
     if (def.hp <= 0) {
       killUnit(state, def, events);
     } else if (f.counter > 0) {
+      // recompute from the defender's actual remaining HP (luck may differ from forecast)
+      const cBase = baseDamage(def.type, att.type);
+      const counter = calcCounterDamage(cBase, def.hp, att, state, att.x, att.y);
       const cLuck = Math.floor(rand(state) * 10 * (def.hp / 100));
-      const cdmg = Math.min(att.hp, f.counter + cLuck);
+      const cdmg = Math.min(att.hp, counter + cLuck);
       att.hp -= cdmg;
       events.push({ type: 'attack', from: def.id, to: att.id, dmg: cdmg, counter: true, x: att.x, y: att.y });
       if (att.hp <= 0) killUnit(state, att, events);
@@ -263,7 +274,11 @@ const Engine = (() => {
     return events;
   }
 
-  function doWait(state, unit) { unit.acted = true; return [{ type: 'wait', unit: unit.id }]; }
+  function doWait(state, unit) {
+    stopCapture(state, unit);  // waiting abandons any capture in progress
+    unit.acted = true;
+    return [{ type: 'wait', unit: unit.id }];
+  }
 
   function doLoad(state, unit, transport) {
     stopCapture(state, unit);
@@ -417,7 +432,7 @@ const Engine = (() => {
     for (const u of state.units) {
       if (u.owner !== player) continue;
       let r = UNITS[u.type].vision;
-      if (terrainAt(state, u.x, u.y).visionBonus && u.type !== 'FIGHTER') r += terrainAt(state, u.x, u.y).visionBonus;
+      if (terrainAt(state, u.x, u.y).visionBonus && !AIR_UNITS.has(u.type)) r += terrainAt(state, u.x, u.y).visionBonus;
       addRadius(u.x, u.y, r);
     }
     for (const k in state.props) {

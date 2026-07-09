@@ -83,9 +83,10 @@ const Sound = (() => {
   function noteFreq(semi) { return 220 * Math.pow(2, semi / 12); }
 
   function playSong(name) {
-    if (currentSong === name) return;
+    if (currentSong === name && musicTimer) return;
     stopMusic();
     currentSong = name;
+    if (muted) return;            // remembered; restarted by setMuted(false)
     const song = SONGS[name];
     if (!song) return;
     let step = 0;
@@ -121,6 +122,8 @@ const Sound = (() => {
   function setMuted(m) {
     muted = m;
     localStorage.setItem('mw_muted', JSON.stringify(m));
+    if (m) { if (musicTimer) { clearInterval(musicTimer); musicTimer = null; } }
+    else if (currentSong) { const s = currentSong; currentSong = null; playSong(s); }
   }
 
   return { sfx, playSong, stopMusic, setMuted, isMuted: () => muted, unlock: () => { try { ac(); } catch (e) {} } };

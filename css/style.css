@@ -90,7 +90,7 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 #hud-top {
   position: absolute; top: 0; left: 0; right: 0;
   display: flex; align-items: center; gap: 6px;
-  padding: calc(6px + env(safe-area-inset-top)) 8px 6px;
+  padding: calc(6px + env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 6px max(8px, env(safe-area-inset-left));
   background: linear-gradient(#101820ee, #10182099 80%, transparent);
   font-weight: 700; font-size: 13px;
   white-space: nowrap;
@@ -126,7 +126,7 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 
 #hud-bottom {
   position: absolute; bottom: 0; left: 0; right: 0;
-  padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+  padding: 8px max(12px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   background: linear-gradient(transparent, #101820cc 30%, #101820ee);
   font-size: 13.5px;
   min-height: 38px;
@@ -191,7 +191,11 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 #forecast-text { padding: 6px 8px; font-size: 14.5px; line-height: 1.5; }
 .good { color: #7de08a; } .bad { color: #ff8a7a; }
 
-#build-menu { max-height: 70vh; overflow-y: auto; min-width: 250px; }
+#build-menu {
+  max-height: 70vh; overflow-y: auto; min-width: 260px;
+  left: 50% !important; top: 50% !important;
+  transform: translate(-50%, -50%);
+}
 .build-title { font-weight: 800; padding: 4px 8px 6px; color: #ffd24d; }
 .build-row { display: flex; align-items: center; gap: 10px; }
 .build-row.disabled { opacity: .4; }
