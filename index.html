@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#16202b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Micro Wars — Turn-Based Tactics</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ============ TITLE ============ -->
+<div id="screen-title" class="screen active">
+  <div class="title-wrap">
+    <div class="title-logo">
+      <span class="t-micro">MICRO</span>
+      <span class="t-wars">WARS</span>
+    </div>
+    <div class="title-sub">Turn-based tactics</div>
+    <button id="btn-play" class="big-btn">▶ &nbsp;Start</button>
+    <div class="title-foot">Works offline · Add to Home Screen for the full experience</div>
+  </div>
+</div>
+
+<!-- ============ MAIN MENU ============ -->
+<div id="screen-menu" class="screen">
+  <div class="menu-wrap">
+    <h1 class="menu-h">MICRO WARS</h1>
+    <button id="btn-continue" class="big-btn accent">⏯ Continue Battle</button>
+    <button id="btn-campaign" class="big-btn">🎖 Campaign</button>
+    <button id="btn-skirmish" class="big-btn">⚔️ Skirmish</button>
+    <button id="btn-help" class="big-btn ghost">📖 How to Play</button>
+  </div>
+</div>
+
+<!-- ============ CAMPAIGN SELECT ============ -->
+<div id="screen-campaign" class="screen">
+  <div class="list-wrap">
+    <div class="list-head"><button class="btn-back">‹ Back</button><h2>Campaign</h2></div>
+    <div id="campaign-list" class="list"></div>
+  </div>
+</div>
+
+<!-- ============ MAP SELECT ============ -->
+<div id="screen-maps" class="screen">
+  <div class="list-wrap">
+    <div class="list-head"><button class="btn-back">‹ Back</button><h2>Skirmish</h2></div>
+    <div class="opt-row">
+      <label class="opt"><input type="checkbox" id="opt-2p"> 2 Players (hotseat)</label>
+      <label class="opt"><input type="checkbox" id="opt-fog"> Fog of War</label>
+    </div>
+    <div id="map-list" class="list"></div>
+  </div>
+</div>
+
+<!-- ============ GAME ============ -->
+<div id="screen-game" class="screen">
+  <canvas id="canvas"></canvas>
+
+  <div id="hud-top">
+    <span id="hud-army" class="chip">—</span>
+    <span id="hud-day">Day 1</span>
+    <span id="hud-funds">G 0</span>
+    <span class="spacer"></span>
+    <button id="btn-ai-speed" class="hud-btn" style="display:none">⏩</button>
+    <button id="btn-menu" class="hud-btn">☰</button>
+    <button id="btn-endturn" class="hud-btn primary">End Turn</button>
+  </div>
+
+  <div id="hud-bottom"><span id="hud-info">&nbsp;</span></div>
+
+  <div id="banner"></div>
+  <div id="toast"></div>
+
+  <div id="action-menu" class="popup"></div>
+
+  <div id="forecast" class="popup">
+    <div id="forecast-text"></div>
+    <div class="popup-btns">
+      <button id="forecast-ok" class="primary">⚔️ Attack</button>
+      <button id="forecast-cancel" class="cancel">✖</button>
+    </div>
+  </div>
+
+  <div id="build-menu" class="popup wide"></div>
+</div>
+
+<!-- ============ MODALS ============ -->
+<div id="intro" class="modal">
+  <div class="modal-box">
+    <h2 id="intro-title"></h2>
+    <div id="intro-text" class="modal-body"></div>
+    <button id="intro-start" class="big-btn accent">Begin Mission</button>
+  </div>
+</div>
+
+<div id="confirm" class="modal">
+  <div class="modal-box small">
+    <div id="confirm-text" class="modal-body"></div>
+    <div class="modal-btns">
+      <button id="confirm-cancel" class="big-btn ghost">Cancel</button>
+      <button id="confirm-ok" class="big-btn accent">OK</button>
+    </div>
+  </div>
+</div>
+
+<div id="pause" class="modal">
+  <div class="modal-box small">
+    <h2>Paused</h2>
+    <button id="pause-resume" class="big-btn accent">Resume</button>
+    <button id="pause-sound" class="big-btn">🔊 Sound: On</button>
+    <button id="pause-help" class="big-btn">📖 How to Play</button>
+    <button id="pause-retry" class="big-btn">↻ Restart Battle</button>
+    <button id="pause-quit" class="big-btn ghost">Quit to Menu</button>
+  </div>
+</div>
+
+<div id="curtain" class="modal opaque">
+  <div class="modal-box small">
+    <h2 id="curtain-text">Pass the device</h2>
+    <button id="curtain-btn" class="big-btn accent">I'm Ready</button>
+  </div>
+</div>
+
+<div id="gameover" class="modal">
+  <div class="modal-box">
+    <h2 id="go-title">Victory!</h2>
+    <div id="go-stats" class="modal-body"></div>
+    <button id="go-next" class="big-btn accent">Next Mission ▶</button>
+    <div class="modal-btns">
+      <button id="go-retry" class="big-btn">↻ Replay</button>
+      <button id="go-menu" class="big-btn ghost">Menu</button>
+    </div>
+  </div>
+</div>
+
+<div id="help" class="modal">
+  <div class="modal-box">
+    <h2>How to Play</h2>
+    <div class="modal-body help-body">
+      <p><b>Goal:</b> capture the enemy HQ 🏰 or destroy every enemy unit.</p>
+      <p><b>Move:</b> tap a unit, tap a blue tile, then pick an action. Drag to pan, pinch to zoom.</p>
+      <p><b>Attack:</b> choose <i>Fire</i>, tap a target, check the damage forecast, confirm. Artillery and Rockets can't move and fire in the same turn — and can't be countered.</p>
+      <p><b>Capture:</b> Infantry and Mechs capture cities, bases and HQs. A full-health unit needs 2 turns. Each property pays <b>1,000G</b> every day.</p>
+      <p><b>Build:</b> tap one of your Bases or Airports to buy units with your funds.</p>
+      <p><b>Terrain:</b> Woods and Mountains raise defense (★). Roads speed up wheels. Only air units cross the sea; Mechs climb mountains easily.</p>
+      <p><b>Heal:</b> end a turn on a friendly property to repair 2 HP (costs funds). Damaged twins can <i>Join</i> into one unit.</p>
+      <p><b>Transports:</b> APCs and T-Copters carry foot soldiers. <i>Load</i> by moving onto them, <i>Drop</i> to unload.</p>
+      <p><b>Scout:</b> tap an enemy unit to see its threat range.</p>
+      <p><b>Counters:</b> Tanks beat vehicles · Mechs beat tanks cheaply · Anti-Air shreds copters &amp; infantry · Bombers erase ground · Fighters own the sky · Artillery softens everything.</p>
+    </div>
+    <button id="help-close" class="big-btn accent">Got it</button>
+  </div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/maps.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/render.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

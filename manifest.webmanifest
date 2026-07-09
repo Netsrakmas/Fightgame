@@ -1,0 +1,14 @@
+{
+  "name": "Micro Wars — Turn-Based Tactics",
+  "short_name": "Micro Wars",
+  "description": "A pocket-sized turn-based tactics game: capture bases, build an army, take the enemy HQ.",
+  "start_url": ".",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#16202b",
+  "theme_color": "#16202b",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

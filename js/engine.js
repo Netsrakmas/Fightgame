@@ -1,8 +1,8 @@
 /* Micro Wars — rules engine. Pure logic, no DOM (loadable in node for tests). */
 'use strict';
 
-if (typeof require !== 'undefined' && typeof window === 'undefined') {
-  var { TERRAIN, CHAR_TERRAIN, UNITS, AIR_UNITS, DAMAGE, INCOME_PER_PROPERTY, CAPTURE_POINTS, REPAIR_HP, MAX_HP } = require('./data.js');
+if (typeof module !== 'undefined' && typeof window === 'undefined') {
+  Object.assign(globalThis, require('./data.js'));
 }
 
 const Engine = (() => {
@@ -26,8 +26,8 @@ const Engine = (() => {
       props: {},          // "x,y" -> {owner, cap, capper}
       units: [],
       players: [
-        { funds: (mapDef.startFunds ? mapDef.startFunds[0] : (opts.funds ?? 5000)), isAI: !!opts.p1AI, eliminated: false },
-        { funds: (mapDef.startFunds ? mapDef.startFunds[1] : (opts.funds ?? 5000)), isAI: opts.p2AI !== false, eliminated: false },
+        { funds: (mapDef.startFunds ? mapDef.startFunds[0] : (opts.funds ?? 5000)), isAI: !!opts.p1AI, built: 0, lost: 0, killed: 0 },
+        { funds: (mapDef.startFunds ? mapDef.startFunds[1] : (opts.funds ?? 5000)), isAI: opts.p2AI !== false, built: 0, lost: 0, killed: 0 },
       ],
       turn: 0, day: 1,
       fog: !!opts.fog,
@@ -194,17 +194,29 @@ const Engine = (() => {
     }
   }
 
+  /* Moves along path. With fog on, an unseen enemy on the path triggers an
+     ambush: the unit stops on the previous tile and its turn ends. */
   function doMove(state, unit, path) {
     const events = [];
-    const dest = path[path.length - 1];
+    let stop = path.length - 1;
+    let trapped = false;
+    for (let i = 1; i < path.length; i++) {
+      const occ = unitAt(state, path[i].x, path[i].y);
+      if (occ && occ.owner !== unit.owner) { stop = i - 1; trapped = true; break; }
+    }
+    const used = path.slice(0, stop + 1);
+    const dest = used[used.length - 1];
     if (dest.x !== unit.x || dest.y !== unit.y) stopCapture(state, unit);
-    events.push({ type: 'move', unit: unit.id, path: path.slice() });
+    events.push({ type: 'move', unit: unit.id, path: used, trapped });
     unit.x = dest.x; unit.y = dest.y;
+    if (trapped) unit.acted = true;
     return events;
   }
 
   function killUnit(state, unit, events) {
     stopCapture(state, unit);
+    state.players[unit.owner].lost += 1 + unit.cargo.length;
+    state.players[1 - unit.owner].killed += 1 + unit.cargo.length;
     state.units = state.units.filter(u => u !== unit);
     events.push({ type: 'die', unit: unit.id, x: unit.x, y: unit.y, owner: unit.owner, utype: unit.type, cargo: unit.cargo.length });
     checkRout(state, events);
@@ -302,6 +314,7 @@ const Engine = (() => {
     if (cost > p.funds) return null;
     if (unitAt(state, x, y)) return null;
     p.funds -= cost;
+    p.built++;
     const u = spawnUnit(state, type, state.turn, x, y);
     u.acted = true;
     return u;

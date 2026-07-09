@@ -1,9 +1,9 @@
 /* Micro Wars — AI player. Pure logic, no DOM (loadable in node for tests). */
 'use strict';
 
-if (typeof require !== 'undefined' && typeof window === 'undefined') {
-  var Engine = require('./engine.js');
-  var { TERRAIN, UNITS, AIR_UNITS, DAMAGE, CAPTURE_POINTS, MAX_HP } = require('./data.js');
+if (typeof module !== 'undefined' && typeof window === 'undefined') {
+  Object.assign(globalThis, require('./data.js'));
+  globalThis.Engine = require('./engine.js');
 }
 
 const AI = (() => {
