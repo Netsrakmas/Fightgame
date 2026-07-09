@@ -217,11 +217,13 @@ const Engine = (() => {
     events.push({ type: 'move', unit: unit.id, path: used, trapped });
     unit.x = dest.x; unit.y = dest.y;
     if (trapped) unit.acted = true;
+    invalidateVision(state);
     return events;
   }
 
   function killUnit(state, unit, events) {
     stopCapture(state, unit);
+    invalidateVision(state);
     state.players[unit.owner].lost += 1 + unit.cargo.length;
     state.players[1 - unit.owner].killed += 1 + unit.cargo.length;
     state.units = state.units.filter(u => u !== unit);
@@ -285,6 +287,7 @@ const Engine = (() => {
     state.units = state.units.filter(u => u !== unit);
     unit.x = transport.x; unit.y = transport.y;
     transport.cargo.push(unit);
+    invalidateVision(state);
     return [{ type: 'load', unit: unit.id, into: transport.id }];
   }
 
@@ -294,6 +297,7 @@ const Engine = (() => {
     cargo.x = cx; cargo.y = cy; cargo.acted = true;
     state.units.push(cargo);
     transport.acted = true;
+    invalidateVision(state);
     events.push({ type: 'drop', unit: cargo.id, from: transport.id, x: cx, y: cy });
     return events;
   }
@@ -320,6 +324,7 @@ const Engine = (() => {
     other.acted = true;
     state.players[unit.owner].funds += refund;
     state.units = state.units.filter(u => u !== unit);
+    invalidateVision(state);
     return [{ type: 'join', unit: unit.id, into: other.id, refund }];
   }
 
@@ -332,6 +337,7 @@ const Engine = (() => {
     p.built++;
     const u = spawnUnit(state, type, state.turn, x, y);
     u.acted = true;
+    invalidateVision(state);
     return u;
   }
 
@@ -388,6 +394,7 @@ const Engine = (() => {
     const events = [];
     state.turn = (state.turn + 1) % state.players.length;
     if (state.turn === 0) { state.day++; }
+    invalidateVision(state);
     const p = state.players[state.turn];
     const income = countProperties(state, state.turn) * INCOME_PER_PROPERTY;
     p.funds += income;

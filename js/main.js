@@ -618,6 +618,7 @@
           if (u) {
             // walk from path start visually
             await animateMove(u, e.path);
+            if (gen !== gameGen) return;
             if (e.trapped) {
               Renderer.addEffect({ type: 'text', x: u.x, y: u.y, text: 'Ambush!', color: 'rgba(255,90,90,ALPHA)' });
             }
@@ -897,6 +898,7 @@
     $$('.btn-back').forEach(b => b.onclick = () => { Sound.sfx.cancel(); show('screen-menu'); });
 
     $('#btn-endturn').onclick = () => {
+      if (!game || isAITurn() || animating || game.winner !== null) return;
       Sound.sfx.tap();
       const idle = game.units.filter(u => u.owner === game.turn && !u.acted).length;
       if (idle > 0) confirmBox(`${idle} unit${idle > 1 ? 's' : ''} can still act. End turn?`, 'End Turn', ok => { if (ok) doEndTurn(); });

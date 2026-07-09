@@ -392,6 +392,8 @@ const Renderer = (() => {
     cam.maxZoom = 2.4;
     cam.x = (game.w * TILE) / 2 - canvas.width / cam.zoom / 2;
     cam.y = (game.h * TILE) / 2 - canvas.height / cam.zoom / 2;
+    // nudge the view down so the top map row isn't hidden under the HUD bar
+    if (game.h * TILE >= canvas.height / cam.zoom) cam.y -= 34 / cam.zoom;
     clampCam(game);
   }
 
